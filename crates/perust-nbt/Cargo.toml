@@ -1,0 +1,10 @@
+[package]
+name = "perust-nbt"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+perust-utils = { workspace = true }
+thiserror = { workspace = true }
+flate2 = { workspace = true }
+indexmap = { workspace = true }

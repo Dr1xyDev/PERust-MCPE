@@ -1,0 +1,16 @@
+[package]
+name = "perust-network"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+perust-utils = { workspace = true }
+perust-protocol = { workspace = true }
+perust-raknet = { workspace = true }
+perust-player = { workspace = true }
+tokio = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }

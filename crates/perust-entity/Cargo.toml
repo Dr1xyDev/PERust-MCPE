@@ -1,0 +1,14 @@
+[package]
+name = "perust-entity"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+perust-utils = { workspace = true }
+perust-nbt = { workspace = true }
+perust-protocol = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+indexmap = { workspace = true }

@@ -1,0 +1,9 @@
+[package]
+name = "perust-scheduler"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+parking_lot = { workspace = true }
+log = { workspace = true }

@@ -1,0 +1,22 @@
+[package]
+name = "perust-player"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+perust-utils = { workspace = true }
+perust-protocol = { workspace = true }
+perust-raknet = { workspace = true }
+perust-entity = { workspace = true }
+perust-inventory = { workspace = true }
+perust-world = { workspace = true }
+perust-items = { workspace = true }
+perust-blocks = { workspace = true }
+tokio = { workspace = true }
+parking_lot = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dashmap = { workspace = true }

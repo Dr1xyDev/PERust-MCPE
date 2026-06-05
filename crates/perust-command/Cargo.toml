@@ -1,0 +1,10 @@
+[package]
+name = "perust-command"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+perust-utils = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }

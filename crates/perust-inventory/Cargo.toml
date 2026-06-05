@@ -1,0 +1,11 @@
+[package]
+name = "perust-inventory"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+perust-utils = { workspace = true }
+perust-protocol = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }

@@ -1,0 +1,39 @@
+[package]
+name = "perust-server"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "perust"
+path = "src/main.rs"
+
+[dependencies]
+perust-utils = { workspace = true }
+perust-nbt = { workspace = true }
+perust-protocol = { workspace = true }
+perust-raknet = { workspace = true }
+perust-network = { workspace = true }
+perust-world = { workspace = true }
+perust-entity = { workspace = true }
+perust-player = { workspace = true }
+perust-inventory = { workspace = true }
+perust-blocks = { workspace = true }
+perust-items = { workspace = true }
+perust-command = { workspace = true }
+perust-event = { workspace = true }
+perust-plugin = { workspace = true }
+perust-scheduler = { workspace = true }
+perust-storage = { workspace = true }
+perust-config = { workspace = true }
+perust-console = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+log = { workspace = true }
+env_logger = { workspace = true }
+chrono = { workspace = true }
+dashmap = { workspace = true }
+uuid = { workspace = true }
+parking_lot = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

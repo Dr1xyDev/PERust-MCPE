@@ -1,0 +1,15 @@
+[package]
+name = "perust-raknet"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+perust-utils = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+rand = { workspace = true }
+flate2 = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }

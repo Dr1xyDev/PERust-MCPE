@@ -1,0 +1,10 @@
+[package]
+name = "perust-utils"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+thiserror = { workspace = true }
+num-traits = { workspace = true }
+uuid = { workspace = true }

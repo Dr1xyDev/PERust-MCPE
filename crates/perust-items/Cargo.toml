@@ -1,0 +1,14 @@
+[package]
+name = "perust-items"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+perust-utils = { workspace = true }
+perust-nbt = { workspace = true }
+perust-protocol = { workspace = true }
+perust-blocks = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }

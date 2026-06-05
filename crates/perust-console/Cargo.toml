@@ -1,0 +1,12 @@
+[package]
+name = "perust-console"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+perust-utils = { workspace = true }
+perust-command = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+log = { workspace = true, features = ["std"] }
+parking_lot = { workspace = true }
+chrono = { workspace = true }
