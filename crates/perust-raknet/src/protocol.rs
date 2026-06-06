@@ -7,7 +7,7 @@
 use crate::error::RakNetError;
 
 /// RakNet protocol version used by Minecraft Bedrock Edition.
-pub const RAKNET_PROTOCOL_VERSION: u8 = 6;
+pub const RAKNET_PROTOCOL_VERSION: u8 = 8;
 
 /// The RakNet "magic" bytes that identify valid RakNet packets.
 pub const RAKNET_MAGIC: [u8; 16] = [
