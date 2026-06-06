@@ -159,10 +159,7 @@ impl SocketAddress {
                 let mut ip = [0u8; 4];
                 ip.copy_from_slice(&data[offset + 1..offset + 5]);
                 let port = u16::from_be_bytes([data[offset + 5], data[offset + 6]]);
-                Ok((
-                    SocketAddress::V4 { ip, port },
-                    1 + 4 + 2,
-                ))
+                Ok((SocketAddress::V4 { ip, port }, 1 + 4 + 2))
             }
             Self::IPV6 => {
                 if data.len() < offset + 1 + 16 + 2 {
@@ -173,10 +170,7 @@ impl SocketAddress {
                 let mut ip = [0u8; 16];
                 ip.copy_from_slice(&data[offset + 1..offset + 17]);
                 let port = u16::from_be_bytes([data[offset + 17], data[offset + 18]]);
-                Ok((
-                    SocketAddress::V6 { ip, port },
-                    1 + 16 + 2,
-                ))
+                Ok((SocketAddress::V6 { ip, port }, 1 + 16 + 2))
             }
             _ => Err(RakNetError::DecodeError(format!(
                 "unknown socket address version: {}",
@@ -351,13 +345,11 @@ impl UnconnectedPing {
     /// Decodes an UnconnectedPing from a byte slice (excluding the packet ID byte).
     pub fn decode(data: &[u8]) -> Result<Self, RakNetError> {
         let mut offset = 0;
-        // Skip packet ID (caller already consumed it)
         let time = read_i64_be(data, &mut offset)?;
         validate_magic(data, offset)?;
         let mut magic = [0u8; 16];
         magic.copy_from_slice(&data[offset..offset + 16]);
-        #[allow(unused_assignments)]
-        { offset += 16; }
+        offset += 16;
         let client_guid = read_i64_be(data, &mut offset)?;
         Ok(UnconnectedPing {
             time,
@@ -438,30 +430,35 @@ impl UnconnectedPong {
 }
 
 /// OpenConnectionRequest1 — first step of the RakNet connection handshake.
+///
+/// Wire format: `[PacketID] [Magic 16 bytes] [Protocol 1 byte] [Padding...]`
 #[derive(Debug, Clone)]
 pub struct OpenConnectionRequest1 {
-    /// The RakNet protocol version.
-    pub protocol: u8,
     /// RakNet magic bytes.
     pub magic: [u8; 16],
+    /// The RakNet protocol version.
+    pub protocol: u8,
     /// The MTU size proposed by the client (padding is used to probe path MTU).
     pub mtu_size: u16,
 }
 
 impl OpenConnectionRequest1 {
     /// Decodes an OpenConnectionRequest1 from a byte slice (excluding the packet ID byte).
+    ///
+    /// Wire order after packet ID: Magic (16 bytes) → Protocol (1 byte) → Padding
     pub fn decode(data: &[u8]) -> Result<Self, RakNetError> {
         let mut offset = 0;
-        let protocol = read_u8(data, &mut offset)?;
+        // FIX: Magic comes FIRST, then protocol
         validate_magic(data, offset)?;
         let mut magic = [0u8; 16];
         magic.copy_from_slice(&data[offset..offset + 16]);
-        // offset += 16; // not needed — MTU is inferred from total packet length
+        offset += 16;
+        let protocol = read_u8(data, &mut offset)?;
         // MTU size is inferred from the total packet length (the rest is padding)
         let mtu_size = (data.len() + 1) as u16; // +1 for the packet ID byte
         Ok(OpenConnectionRequest1 {
-            protocol,
             magic,
+            protocol,
             mtu_size,
         })
     }
@@ -469,13 +466,17 @@ impl OpenConnectionRequest1 {
     /// Encodes this packet into bytes, including the packet ID.
     ///
     /// The packet is padded to `mtu_size` bytes to probe the path MTU.
+    ///
+    /// Wire order: `[0x05] [Magic 16 bytes] [Protocol 1 byte] [Padding...]`
     pub fn encode(&self) -> Vec<u8> {
-        let header_size = 1 + 1 + 16;
+        // FIX: Header is PacketID(1) + Magic(16) + Protocol(1) = 18 bytes
+        let header_size = 1 + 16 + 1;
         let padding_size = self.mtu_size as usize - header_size;
         let mut buf = Vec::with_capacity(self.mtu_size as usize);
         buf.push(ID_OPEN_CONNECTION_REQUEST_1);
-        buf.push(self.protocol);
+        // FIX: Magic FIRST, then protocol
         buf.extend_from_slice(&self.magic);
+        buf.push(self.protocol);
         // Pad with zeros to reach the MTU size
         buf.extend(std::iter::repeat(0u8).take(padding_size));
         buf
@@ -815,6 +816,11 @@ impl ConnectionLost {
 }
 
 /// IncompatibleProtocolVersion — sent when the client's protocol version doesn't match.
+///
+/// Wire format: `[PacketID] [Protocol 1 byte] [Magic 16 bytes] [ServerGUID 8 bytes]`
+///
+/// Note: This is the one unconnected packet where protocol comes BEFORE magic,
+/// unlike OpenConnectionRequest1 where magic comes first.
 #[derive(Debug, Clone)]
 pub struct IncompatibleProtocolVersion {
     /// The server's protocol version.
@@ -869,10 +875,11 @@ impl IncompatibleProtocolVersion {
 /// A RakNet datagram carrying encapsulated packets.
 ///
 /// Datagrams are the basic transmission unit for connected sessions.
-/// Each datagram contains a sequence number and one or more encapsulated packets.
+/// Each datagram contains a sequence number (3-byte unsigned triad) and one or
+/// more encapsulated packets.
 #[derive(Debug, Clone)]
 pub struct Datagram {
-    /// The sequence number of this datagram.
+    /// The sequence number of this datagram (stored as u32, wire format is 3 bytes).
     pub sequence_number: u32,
     /// The encapsulated packets contained in this datagram.
     pub packets: Vec<Vec<u8>>,
@@ -880,26 +887,36 @@ pub struct Datagram {
 
 impl Datagram {
     /// Decodes a datagram from raw bytes (after the ID byte has been consumed).
+    ///
+    /// The sequence number is a 3-byte unsigned triad (u24), consistent with
+    /// RakLib's `Binary::readUnsignedTriad` / `writeUnsignedTriad`.
     pub fn decode(data: &[u8]) -> Result<Self, RakNetError> {
-        if data.len() < 4 {
+        if data.len() < 3 {
             return Err(RakNetError::DecodeError(
                 "datagram too short for sequence number".to_string(),
             ));
         }
-        let sequence_number = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+        // FIX: Sequence number is a 3-byte (u24) triad, not a 4-byte u32
+        let sequence_number = ((data[0] as u32) << 16)
+            | ((data[1] as u32) << 8)
+            | (data[2] as u32);
         // The rest of the datagram contains encapsulated packet data
         // (parsing individual encapsulated packets is handled by the session)
         Ok(Datagram {
             sequence_number,
-            packets: vec![data[4..].to_vec()],
+            packets: vec![data[3..].to_vec()],
         })
     }
 
     /// Encodes a datagram with the given sequence number and payload.
+    ///
+    /// The sequence number is encoded as a 3-byte unsigned triad (u24),
+    /// consistent with RakLib's `Binary::writeUnsignedTriad`.
     pub fn encode(sequence_number: u32, payload: &[u8]) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(1 + 4 + payload.len());
+        let mut buf = Vec::with_capacity(1 + 3 + payload.len());
         buf.push(ID_DATAGRAM);
-        buf.extend_from_slice(&sequence_number.to_be_bytes());
+        // FIX: Encode sequence number as 3-byte triad, not 4-byte u32
+        buf.extend_from_slice(&encode_triple_byte(sequence_number));
         buf.extend_from_slice(payload);
         buf
     }
