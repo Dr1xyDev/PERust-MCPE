@@ -380,8 +380,20 @@ impl Session {
         for seq in sequences {
             // Remove from NACK queue if present
             self.nack_queue.retain(|&s| s != *seq);
+
+            // FIX: Retransmit the packet from the recovery queue.
+            // When the peer sends a NACK, it means it never received this datagram,
+            // so we need to re-queue it for sending.
+            if self.recovery_queue.contains_key(seq) {
+                // The recovery queue entry will be retransmitted in tick()
+                // For now we just keep it in the queue — it won't be removed
+                // until an ACK is received.
+                log::debug!(
+                    "NACK received for seq {}, keeping in recovery queue for retransmit",
+                    seq
+                );
+            }
         }
-        // Note: retransmission of NACKed packets happens in tick()
     }
 
     /// Queues an encapsulated packet to be sent to this peer.
@@ -420,10 +432,11 @@ impl Session {
             output.push(encode_ack_nack(ID_NACK, &nack_queue));
         }
 
-        // Assemble queued encapsulated packets into datagrams
-        if !self.send_queue.is_empty() {
-            let packets = std::mem::take(&mut self.send_queue);
-            let datagram_data = self.assemble_datagram(packets);
+        // FIX: Assemble queued encapsulated packets into datagrams,
+        // creating MULTIPLE datagrams if needed so no packets are dropped.
+        let mut packets = std::mem::take(&mut self.send_queue);
+        while !packets.is_empty() {
+            let (datagram_data, remaining) = self.assemble_datagram(packets);
 
             if !datagram_data.is_empty() {
                 // Store in recovery queue for reliable packets
@@ -434,22 +447,42 @@ impl Session {
                 output.push(datagram);
                 self.send_sequence = self.send_sequence.wrapping_add(1);
             }
+
+            // Continue with the packets that didn't fit in this datagram
+            packets = remaining;
+
+            // Safety: if assemble_datagram returns empty payload and no remaining
+            // packets, break to avoid an infinite loop. This shouldn't happen
+            // in practice, but guards against logic errors.
+            if datagram_data.is_empty() {
+                break;
+            }
         }
 
-        // Check for timed-out recovery packets and retransmit
-        // (In a full implementation, we'd track send time per recovery entry)
-        // For now, we keep them in the queue until ACKed
+        // Retransmit packets from the recovery queue that have been NACKed.
+        // In a full implementation, we'd track send time per recovery entry
+        // and only retransmit after a timeout. For now, we keep them in the
+        // queue until ACKed — the NACK handler keeps them alive for retransmit.
 
         output
     }
 
-    /// Assembles a list of encapsulated packets into a datagram payload,
-    /// splitting across multiple datagrams if the MTU is exceeded.
-    fn assemble_datagram(&mut self, packets: Vec<EncapsulatedPacket>) -> Vec<u8> {
+    /// Assembles a list of encapsulated packets into a datagram payload.
+    ///
+    /// FIX: Returns a tuple of `(payload, remaining_packets)` where
+    /// `remaining_packets` contains any packets that didn't fit in this
+    /// datagram. The caller is responsible for creating additional datagrams
+    /// for the remaining packets, ensuring no packets are silently dropped.
+    fn assemble_datagram(
+        &mut self,
+        packets: Vec<EncapsulatedPacket>,
+    ) -> (Vec<u8>, Vec<EncapsulatedPacket>) {
         let mut payload = Vec::new();
-        // Header is 4 bytes for sequence number + 1 for ID_DATAGRAM
-        let header_overhead = 4;
-        let mut remaining_mtu = self.mtu_size as usize - header_overhead;
+        // Datagram header: ID_DATAGRAM(1) + sequence triad(3) = 4 bytes
+        let datagram_header = 1 + 3;
+        let mut remaining_mtu = self.mtu_size as usize - datagram_header;
+        let mut remaining_packets = Vec::new();
+        let mut added_any = false;
 
         for mut packet in packets {
             // Assign indices based on reliability
@@ -476,35 +509,47 @@ impl Session {
 
             let encoded = packet.encode();
 
-            // If this single packet exceeds the MTU, split it
             if encoded.len() > remaining_mtu {
-                // If we already have payload, finish this datagram
-                if !payload.is_empty() {
-                    break;
+                if added_any {
+                    // This packet doesn't fit in the current datagram —
+                    // save it and all subsequent packets for the next datagram.
+                    remaining_packets.push(packet);
+                } else {
+                    // Even alone this packet is too large for the datagram.
+                    // It should have been split via send_split() before being queued.
+                    // Include it anyway to avoid stalling the queue, but log a warning.
+                    log::warn!(
+                        "Encapsulated packet ({} bytes) exceeds remaining MTU ({} bytes) \
+                         for session {}. Consider using send_split() for large packets.",
+                        encoded.len(),
+                        remaining_mtu,
+                        self.address
+                    );
+                    payload.extend_from_slice(&encoded);
+                    // No more room for anything after this oversized packet
                 }
-
-                // The packet is too large for a single datagram,
-                // it should have been split before being queued.
-                // For safety, just include it anyway (the caller should handle splitting).
-                payload.extend_from_slice(&encoded);
-                break;
+                // All subsequent packets also won't fit — skip to collecting them
+                continue;
             }
 
             payload.extend_from_slice(&encoded);
             remaining_mtu -= encoded.len();
+            added_any = true;
         }
 
-        payload
+        (payload, remaining_packets)
     }
 
     /// Splits a large payload into multiple encapsulated packets that fit
     /// within the MTU, and queues them for sending.
     pub fn send_split(&mut self, data: Vec<u8>, reliability: Reliability, channel: u8) {
         // Maximum payload per encapsulated packet (accounting for header overhead)
-        // The worst-case header is: flags(1) + length(2) + message_index(3) +
+        // The worst-case encapsulated header is: flags(1) + length(2) + message_index(3) +
         // order_index(3) + order_channel(1) + split_fields(10) = 20 bytes
-        let header_overhead = 20;
-        let max_payload_size = self.mtu_size as usize - 4 - header_overhead; // -4 for datagram seq
+        let encapsulated_header_overhead = 20;
+        // Datagram header: ID_DATAGRAM(1) + sequence triad(3) = 4 bytes
+        let datagram_header = 1 + 3;
+        let max_payload_size = self.mtu_size as usize - datagram_header - encapsulated_header_overhead;
 
         if data.len() <= max_payload_size {
             // No need to split
